@@ -1,8 +1,8 @@
 mode: ManualDeployment
 next-version: 0.90.0
-major-version-bump-message: '\s?(breaking|major|breaking\schange)'
-minor-version-bump-message: '(adds?|features?|minor)\b'
-patch-version-bump-message: '\s?(fix|patch)'
+major-version-bump-message: '\+semver:\s?(breaking|major)'
+minor-version-bump-message: '\+semver:\s?(feature|minor)'
+patch-version-bump-message: '\+semver:\s?(fix|patch)'
 no-bump-message: '\+semver:\s?(none|skip)'
 branches:
   main:
@@ -13,7 +13,7 @@ branches:
   feature:
     label: '{BranchName}'
     increment: Minor
-    regex: f(eature(s)?)?[\/-]
+    regex: ^features?[\/-](?<BranchName>.+)
     source-branches: ['main']
   hotfix:
     label: fix
