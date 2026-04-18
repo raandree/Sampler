@@ -282,6 +282,22 @@ Describe 'Get-SamplerBuildVersion' {
     }
 
     Context 'When the environment variable ModuleVersion is set' {
+        BeforeAll {
+            InModuleScope -ScriptBlock {
+                # Stub for gitversion.exe so we can mock the result.
+                function script:gitversion
+                {
+                    throw '{0}: StubNotImplemented' -f $MyInvocation.MyCommand
+                }
+            }
+        }
+
+        AfterAll {
+            InModuleScope -ScriptBlock {
+                Remove-Item -Path 'function:gitversion' -Force
+            }
+        }
+
         Context "When having a preview module version in main branch and the version is stored in the environment variable 'ModuleVersion'" {
                 BeforeAll {
                     Mock -CommandName gitversion -MockWith {
@@ -302,7 +318,7 @@ Describe 'Get-SamplerBuildVersion' {
                 }
 
                 AfterAll {
-                    Remove-Item -Path env:ModuleVersion -Force
+                    Remove-Item -Path env:ModuleVersion -ErrorAction SilentlyContinue
                 }
             }
     }
