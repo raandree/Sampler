@@ -50,9 +50,12 @@ task GitVersion -if (Get-Command -Name dotnet-gitversion.exe, gitversion.exe -Er
     $versionString = -join $versionElements
     [System.Environment]::SetEnvironmentVariable('ModuleVersion', $versionString, 'Process')
 
-    Write-Host "Writing version string '$versionString' to build / environment variable 'VersionString'."
-    Write-Host "##vso[task.setvariable variable=VersionString;]$($versionString)"
+    if ([string]::IsNullOrEmpty($env:TF_BUILD)) #when the code runs on an AzDo build agent, the TF_BUILD variable is set
+    {
+        Write-Host "Writing version string '$versionString' to build / environment variable 'VersionString'."
+        Write-Host "##vso[task.setvariable variable=VersionString;]$($versionString)"
 
-    Write-Host "Updating build number to '$versionString'."
-    Write-Host "##vso[build.updatebuildnumber]$($versionString)"
+        Write-Host "Updating build number to '$versionString'."
+        Write-Host "##vso[build.updatebuildnumber]$($versionString)"
+    }
 }
