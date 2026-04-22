@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `package_psresource_nupkg` tasks that recursively packs dependencies, ignoring `ExternalDependencies` using `PSResourceGet` module.
+- Tab-completion for the `-Tasks` parameter of the scaffolded `Build.ps1`.
+  Candidates include the Invoke-Build `?` help token, tasks defined under
+  `./.build/**/*.ps1`, tasks imported from modules under
+  `./output/RequiredModules/**/*.build.ps1`, and workflow aliases declared
+  under `BuildWorkflow:` in `build.yaml`. The completer is self-contained and
+  works in a fresh clone before `Resolve-Dependency` has ever run.
 
 ### Fixed
 
@@ -972,7 +978,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed #192 where the `Build-Module` command from module builder returns
-  a rooted path (sometimes). 
+  a rooted path (sometimes).
 
 ## [0.107.0] - 2020-09-07
 
