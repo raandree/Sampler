@@ -46,6 +46,10 @@
                   help="Adds PSv5+ Classes folders and an example."
                   value="Classes"/>
 
+            <choice label='&amp;Type Accelerators'
+                  help="Adds a suffix.ps1 exporting your Classes as (module-qualified) type accelerators. Requires Classes."
+                  value="TypeAccelerators"/>
+
             <choice label='&amp;DSC Resources'
                   help="Adds DSCResources folders and an example."
                   value="DSCResources"/>
@@ -88,6 +92,9 @@
             <choice label='Visual Studio &amp;Code'
                   help="Adds Visual Studio Code configuration files."
                   value="vscode"/>
+            <choice label='&amp;Copilot instructions'
+                  help="Adds GitHub Copilot instruction files under .github/."
+                  value="copilot"/>
             <choice label='Test&amp;Kitchen'
                   help="Adds TestKitchen folders, yaml and an example."
                   value="TestKitchen"/>
@@ -97,6 +104,12 @@
       <parameter name="ModuleDescription" type="text" prompt="Description of this module" />
       <parameter name="CustomRepo" default="PSGallery" type="text" prompt="Do you pull from default repository (PSGallery) or a custom repository?" />
       <parameter name="ModuleVersion" type="text" prompt="Module version"  default="0.0.1" />
+
+      <!-- Only prompted when the TypeAccelerators feature (or All/CompleteSample) is selected alongside Classes. -->
+      <parameter name="ExportableTypeName" store="text" type="text"
+                  default="Class1"
+                  prompt="Name of the Class to export as a type accelerator via suffix.ps1?"
+                  condition='(${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("TypeAccelerators") -or ${PLASTER_PARAM_Features} -Contains ("All")) -and (${PLASTER_PARAM_Features} -Contains "All" -or (${PLASTER_PARAM_Features} -Contains "Classes" -and ${PLASTER_PARAM_Features} -Contains "SampleScripts") -or ${PLASTER_PARAM_ModuleType} -in @("CompleteSample"))' />
 
       <!-- UseGit prompts only for ModuleTypes that don't decide it implicitly. CustomModule expresses Git via the 'git' Feature. -->
       <parameter name="UseGit" type="choice"
@@ -111,7 +124,7 @@
                   default="main"
                   store="text"
                   prompt="Name of your default branch"
-                  condition="$PLASTER_PARAM_UseGit -eq 'true' -or $PLASTER_PARAM_ModuleType -in @('CompleteSample', 'CustomModule')"/>
+                  condition="$PLASTER_PARAM_UseGit -eq 'true' -or $PLASTER_PARAM_ModuleType -in @('CompleteSample', 'CustomModule', 'dsccommunity')"/>
 
       <parameter name="UseGitVersion" type="choice"
                   prompt="Do you want to add configuration for GitVersion to handle automatic versioning for your project?"
@@ -148,7 +161,7 @@
       <parameter name="GitHubOwner" type="text"
                   default="MyOrgName"
                   prompt="What is the name of the GitHub owner (personal or organization account) that will publish the module?"
-                  condition="($PLASTER_PARAM_ModuleType -eq 'CustomModule' -and ($PLASTER_PARAM_Features -contains 'github' -or $PLASTER_PARAM_Features -contains 'All')) -or ($PLASTER_PARAM_UseGitHub -eq 'true' -and $PLASTER_PARAM_ModuleType -notin @('dsccommunity', 'SimpleModule_NoBuild', 'CustomModule')) -or $PLASTER_PARAM_ModuleType -in @('CompleteSample')" />
+                  condition="($PLASTER_PARAM_ModuleType -eq 'CustomModule' -and ($PLASTER_PARAM_Features -contains 'github' -or $PLASTER_PARAM_Features -contains 'All')) -or ($PLASTER_PARAM_UseGitHub -eq 'true' -and $PLASTER_PARAM_ModuleType -notin @('dsccommunity', 'SimpleModule_NoBuild'))" />
 
       <parameter name="GitHubOwnerDscCommunity" type="text"
                   default="dsccommunity"
@@ -352,6 +365,12 @@
     <file source='../Classes/Classes/4.class12.ps1'
           destination='${PLASTER_PARAM_ModuleName}/${PLASTER_PARAM_SourceDirectory}/Classes/4.class12.ps1'
           condition='${PLASTER_PARAM_Features} -Contains "All" -or (${PLASTER_PARAM_Features} -Contains "Classes" -and ${PLASTER_PARAM_Features} -Contains "SampleScripts") -or ${PLASTER_PARAM_ModuleType} -in @("CompleteSample")'
+    />
+
+    <!--   TYPE ACCELERATORS Suffix File - requires the Classes sample files (see condition above) -->
+    <templateFile source='../TypeAccelerators/suffix.ps1.template'
+          destination='${PLASTER_PARAM_ModuleName}/${PLASTER_PARAM_SourceDirectory}/suffix.ps1'
+          condition='(${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("TypeAccelerators") -or ${PLASTER_PARAM_Features} -Contains ("All")) -and (${PLASTER_PARAM_Features} -Contains "All" -or (${PLASTER_PARAM_Features} -Contains "Classes" -and ${PLASTER_PARAM_Features} -Contains "SampleScripts") -or ${PLASTER_PARAM_ModuleType} -in @("CompleteSample"))'
     />
 
     <!--   OUTPUT FOLDER -->
@@ -785,6 +804,65 @@
     <templateFile source='codecov.yml.template'
           destination='${PLASTER_PARAM_ModuleName}/codecov.yml'
           condition='(${PLASTER_PARAM_UseCodeCovIo} -eq $true -or ${PLASTER_PARAM_ModuleType} -in @("dsccommunity", "CompleteSample")) -or ${PLASTER_PARAM_Features} -Contains ("All") -or ${PLASTER_PARAM_Features} -Contains ("codecov")'
+    />
+
+   <!-- COPILOT INSTRUCTIONS - always-on files -->
+    <templateFile source='../Copilot/copilot-instructions.md.template'
+          destination='${PLASTER_PARAM_ModuleName}/.github/copilot-instructions.md'
+          condition='${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")'
+    />
+
+    <file source='../Copilot/instructions/ai-instruction-authoring.instructions.md'
+          destination='${PLASTER_PARAM_ModuleName}/.github/instructions/ai-instruction-authoring.instructions.md'
+          condition='${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")'
+    />
+
+    <templateFile source='../Copilot/instructions/public-functions.instructions.md.template'
+          destination='${PLASTER_PARAM_ModuleName}/.github/instructions/public-functions.instructions.md'
+          condition='${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")'
+    />
+
+    <templateFile source='../Copilot/instructions/private-functions.instructions.md.template'
+          destination='${PLASTER_PARAM_ModuleName}/.github/instructions/private-functions.instructions.md'
+          condition='${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")'
+    />
+
+    <templateFile source='../Copilot/instructions/test-writing.instructions.md.template'
+          destination='${PLASTER_PARAM_ModuleName}/.github/instructions/test-writing.instructions.md'
+          condition='${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")'
+    />
+
+    <file source='../Copilot/instructions/build-tasks.instructions.md'
+          destination='${PLASTER_PARAM_ModuleName}/.github/instructions/build-tasks.instructions.md'
+          condition='${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")'
+    />
+
+    <templateFile source='../Copilot/skills/validate-changes/SKILL.md.template'
+          destination='${PLASTER_PARAM_ModuleName}/.github/skills/validate-changes/SKILL.md'
+          condition='${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")'
+    />
+
+   <!-- COPILOT INSTRUCTIONS - conditional on Classes feature -->
+    <templateFile source='../Copilot/instructions/classes-and-type-accelerators.instructions.md.template'
+          destination='${PLASTER_PARAM_ModuleName}/.github/instructions/classes-and-type-accelerators.instructions.md'
+          condition='(${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")) -and (${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("Classes") -or ${PLASTER_PARAM_Features} -Contains ("All"))'
+    />
+
+    <templateFile source='../Copilot/skills/export-class-type-accelerator/SKILL.md.template'
+          destination='${PLASTER_PARAM_ModuleName}/.github/skills/export-class-type-accelerator/SKILL.md'
+          condition='(${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")) -and (${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("Classes") -or ${PLASTER_PARAM_Features} -Contains ("All"))'
+    />
+
+   <!-- COPILOT INSTRUCTIONS - conditional on Build feature -->
+    <file source='../Copilot/instructions/build-task-files.instructions.md'
+          destination='${PLASTER_PARAM_ModuleName}/.github/instructions/build-task-files.instructions.md'
+          condition='(${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("copilot") -or ${PLASTER_PARAM_Features} -Contains ("All")) -and (${PLASTER_PARAM_ModuleType} -eq "CompleteSample" -or ${PLASTER_PARAM_Features} -Contains ("Build") -or ${PLASTER_PARAM_Features} -Contains ("All"))'
+    />
+
+   <!-- COPILOT INSTRUCTIONS - conditional on WikiSource (CompleteSample only by default) -->
+    <templateFile source='../Copilot/instructions/wiki-publishing.instructions.md.template'
+          destination='${PLASTER_PARAM_ModuleName}/.github/instructions/wiki-publishing.instructions.md'
+          condition='${PLASTER_PARAM_ModuleType} -eq "CompleteSample"'
     />
   </content>
 </plasterManifest>

@@ -24,6 +24,10 @@ param
 
     [Parameter()]
     [System.String]
+    $SourcePath = (property SourcePath ''),
+
+    [Parameter()]
+    [System.String]
     $PesterOutputFolder = (property PesterOutputFolder 'testResults'),
 
     [Parameter()]
@@ -45,6 +49,10 @@ param
     [Parameter()]
     [System.String]
     $CodeCoverageThreshold = (property CodeCoverageThreshold ''),
+
+    [Parameter()]
+    [System.String]
+    $ModuleVersion = (property ModuleVersion ''),
 
     # Build Configuration object
     [Parameter()]
@@ -82,9 +90,37 @@ task Invoke_Pester_Tests_v4 {
         return
     }
 
-    # Get the values for task variables, see https://github.com/gaelcolas/Sampler?tab=readme-ov-file#build-task-variables.
-    . Set-SamplerTaskVariable
+    $getSamplerProjectBuildInfoParameters = @{
+        ProjectPath              = $ProjectPath
+        OutputDirectory          = $OutputDirectory
+        BuiltModuleSubdirectory  = $BuiltModuleSubdirectory
+        VersionedOutputDirectory = $VersionedOutputDirectory
+        ProjectName              = $ProjectName
+        SourcePath               = $SourcePath
+        ModuleVersion            = $ModuleVersion
+        BuildInfo                = $BuildInfo
+    }
 
+    $samplerProjectBuildInfo = Get-SamplerProjectBuildInfo @getSamplerProjectBuildInfoParameters
+    $resolvedProjectName = $samplerProjectBuildInfo.ProjectName
+    $resolvedSourcePath = $samplerProjectBuildInfo.SourcePath
+    $resolvedModuleVersion = $samplerProjectBuildInfo.ModuleVersion
+
+    Write-Build -Color 'DarkGray' -Text (
+        "Resolved project build info. BuildType = '{0}', HasBuiltOutput = '{1}', ProjectName = '{2}', SourcePath = '{3}', ModuleVersion = '{4}'." -f
+        $samplerProjectBuildInfo.BuildType,
+        $samplerProjectBuildInfo.HasBuiltOutput,
+        $resolvedProjectName,
+        $resolvedSourcePath,
+        $resolvedModuleVersion
+    )
+
+    # Get the values for task variables, see https://github.com/gaelcolas/Sampler?tab=readme-ov-file#build-task-variables.
+    $ProjectName = $resolvedProjectName
+    $SourcePath = $resolvedSourcePath
+    $ModuleVersion = $resolvedModuleVersion
+    # Get the values for task variables, see https://github.com/gaelcolas/Sampler?tab=readme-ov-file#build-task-variables.
+     . Set-SamplerTaskVariable
     $PesterOutputFolder = Get-SamplerAbsolutePath -Path $PesterOutputFolder -RelativeTo $OutputDirectory
 
     "`tPester Output Folder     = '$PesterOutputFolder"
@@ -211,26 +247,6 @@ task Invoke_Pester_Tests_v4 {
     $pesterOutputFileFileName = Get-PesterOutputFileFileName @getPesterOutputFileFileNameParameters
     $pesterOutputFullPath = Join-Path -Path $PesterOutputFolder -ChildPath "$($PesterOutputFormat)_$pesterOutputFileFileName"
 
-    $moduleUnderTest = Import-Module -Name $ProjectName -PassThru
-    $PesterCodeCoverage = (Get-ChildItem -Path $moduleUnderTest.ModuleBase -Include @('*.psm1', '*.ps1') -Recurse).Where{
-        $result = $true
-
-        foreach ($excludePath in $ExcludeFromCodeCoverage)
-        {
-            if (-not (Split-Path -IsAbsolute $excludePath))
-            {
-                $excludePath = Join-Path -Path $moduleUnderTest.ModuleBase -ChildPath $excludePath
-            }
-
-            if ($_.FullName -match ([regex]::Escape($excludePath)))
-            {
-                $result = $false
-            }
-        }
-
-        $result
-    }
-
     $pesterParams = @{
         PassThru = $true
     }
@@ -250,8 +266,58 @@ task Invoke_Pester_Tests_v4 {
         $CodeCoverageOutputFile = (Join-Path -Path $PesterOutputFolder -ChildPath "CodeCov_$pesterOutputFileFileName")
     }
 
+    $moduleUnderTest = $null
+
+    if ($samplerProjectBuildInfo.BuildType -eq 'PowerShellModule')
+    {
+        $getSamplerBuiltModuleManifestParameters = @{
+            OutputDirectory          = $OutputDirectory
+            BuiltModuleSubdirectory  = $BuiltModuleSubdirectory
+            ModuleName               = $ProjectName
+            VersionedOutputDirectory = $VersionedOutputDirectory
+        }
+
+        if (-not [System.String]::IsNullOrEmpty($ModuleVersion))
+        {
+            $getSamplerBuiltModuleManifestParameters['ModuleVersion'] = $ModuleVersion
+        }
+
+        $builtModuleManifestPath = Get-SamplerBuiltModuleManifest @getSamplerBuiltModuleManifestParameters
+        $resolvedBuiltModuleManifestPath = (Get-Item -Path $builtModuleManifestPath -ErrorAction 'Ignore').FullName
+
+        if ($resolvedBuiltModuleManifestPath)
+        {
+            $moduleUnderTest = Import-Module -Name $resolvedBuiltModuleManifestPath -PassThru -ErrorAction 'Stop'
+        }
+    }
+
     if ($codeCoverageThreshold -gt 0)
     {
+        if (-not $moduleUnderTest)
+        {
+            Write-Build -Color 'Yellow' -Text ("Code coverage requires a built module for project '{0}'. Build the module first or set CodeCoverageThreshold to 0." -f $ProjectName)
+            return
+        }
+
+        $PesterCodeCoverage = (Get-ChildItem -Path $moduleUnderTest.ModuleBase -Include @('*.psm1', '*.ps1') -Recurse).Where{
+            $result = $true
+
+            foreach ($excludePath in $ExcludeFromCodeCoverage)
+            {
+                if (-not (Split-Path -IsAbsolute $excludePath))
+                {
+                    $excludePath = Join-Path -Path $moduleUnderTest.ModuleBase -ChildPath $excludePath
+                }
+
+                if ($_.FullName -match ([regex]::Escape($excludePath)))
+                {
+                    $result = $false
+                }
+            }
+
+            $result
+        }
+
         $pesterParams.Add('CodeCoverage', $PesterCodeCoverage)
         $pesterParams.Add('CodeCoverageOutputFile', $CodeCoverageOutputFile)
         $pesterParams.Add('CodeCoverageOutputFileFormat', $PesterCodeCoverageOutputFileFormat)
@@ -361,7 +427,7 @@ task Fail_Build_If_Pester_Tests_Failed {
     ""
 
     # Get the values for task variables, see https://github.com/gaelcolas/Sampler?tab=readme-ov-file#build-task-variables.
-    . Set-SamplerTaskVariable
+        . Set-SamplerTaskVariable
 
     $PesterOutputFolder = Get-SamplerAbsolutePath -Path $PesterOutputFolder -RelativeTo $OutputDirectory
 
@@ -387,9 +453,19 @@ task Fail_Build_If_Pester_Tests_Failed {
         PowerShellVersion = $powerShellVersion
     }
 
-    $PesterOutputFileFileName = Get-PesterOutputFileFileName @getPesterOutputFileFileNameParameters
+    if ([System.String]::IsNullOrEmpty($ProjectName) -or [System.String]::IsNullOrEmpty($ModuleVersion))
+    {
+        $latestPesterResultObject = Get-ChildItem -Path $PesterOutputFolder -Filter 'PesterObject_*.xml' -ErrorAction 'Ignore' |
+            Sort-Object -Property LastWriteTime -Descending |
+            Select-Object -First 1
 
-    $PesterResultObjectClixml = Join-Path -Path $PesterOutputFolder -ChildPath "PesterObject_$PesterOutputFileFileName"
+        $PesterResultObjectClixml = $latestPesterResultObject.FullName
+    }
+    else
+    {
+        $PesterOutputFileFileName = Get-PesterOutputFileFileName @getPesterOutputFileFileNameParameters
+        $PesterResultObjectClixml = Join-Path -Path $PesterOutputFolder -ChildPath "PesterObject_$PesterOutputFileFileName"
+    }
 
     Write-Build -Color 'White' -Text "`tPester Output Object = $PesterResultObjectClixml"
 
@@ -410,7 +486,25 @@ task Fail_Build_If_Pester_Tests_Failed {
     {
         $pesterObject = Import-Clixml -Path $PesterResultObjectClixml -ErrorAction 'Stop'
 
-        Assert-Build -Condition ($pesterObject.FailedCount -eq 0) -Message ('Failed {0} tests. Aborting Build' -f $pesterObject.FailedCount)
+        if ($null -ne $pesterObject.Result)
+        {
+            <#
+                Pester 5+ exposes a single Result property ('Passed'/'Failed') that
+                already accounts for failed tests, failed blocks and failed containers.
+                Container/discovery failures (for example an empty -ForEach, or a parse
+                error in a test file) do not increase FailedCount, so gating on
+                FailedCount alone lets those failures slip through as a green build.
+            #>
+            $assertMessage = "Pester result was '{0}'. Failed {1} test(s), {2} block(s) and {3} container(s). Aborting Build" -f
+                $pesterObject.Result, $pesterObject.FailedCount, $pesterObject.FailedBlocksCount, $pesterObject.FailedContainersCount
+
+            Assert-Build -Condition ($pesterObject.Result -eq 'Passed') -Message $assertMessage
+        }
+        else
+        {
+            # Pester 4 result objects have no Result/FailedBlocksCount/FailedContainersCount properties.
+            Assert-Build -Condition ($pesterObject.FailedCount -eq 0) -Message ('Failed {0} tests. Aborting Build' -f $pesterObject.FailedCount)
+        }
     }
 }
 
@@ -436,8 +530,36 @@ task Invoke_Pester_Tests_v5 {
         return
     }
 
+    $getSamplerProjectBuildInfoParameters = @{
+        ProjectPath              = $ProjectPath
+        OutputDirectory          = $OutputDirectory
+        BuiltModuleSubdirectory  = $BuiltModuleSubdirectory
+        VersionedOutputDirectory = $VersionedOutputDirectory
+        ProjectName              = $ProjectName
+        SourcePath               = $SourcePath
+        ModuleVersion            = $ModuleVersion
+        BuildInfo                = $BuildInfo
+    }
+
+    $samplerProjectBuildInfo = Get-SamplerProjectBuildInfo @getSamplerProjectBuildInfoParameters
+    $resolvedProjectName = $samplerProjectBuildInfo.ProjectName
+    $resolvedSourcePath = $samplerProjectBuildInfo.SourcePath
+    $resolvedModuleVersion = $samplerProjectBuildInfo.ModuleVersion
+
+    Write-Build -Color 'DarkGray' -Text (
+        "Resolved project build info. BuildType = '{0}', HasBuiltOutput = '{1}', ProjectName = '{2}', SourcePath = '{3}', ModuleVersion = '{4}'." -f
+        $samplerProjectBuildInfo.BuildType,
+        $samplerProjectBuildInfo.HasBuiltOutput,
+        $resolvedProjectName,
+        $resolvedSourcePath,
+        $resolvedModuleVersion
+    )
+
+    $ProjectName = $resolvedProjectName
+    $SourcePath = $resolvedSourcePath
+    $ModuleVersion = $resolvedModuleVersion
     # Get the values for task variables, see https://github.com/gaelcolas/Sampler?tab=readme-ov-file#build-task-variables.
-    . Set-SamplerTaskVariable
+     . Set-SamplerTaskVariable
 
     $PesterOutputFolder = Get-SamplerAbsolutePath -Path $PesterOutputFolder -RelativeTo $OutputDirectory
 
@@ -791,8 +913,41 @@ Pester:
     "`tPester Tags         = $($pesterParameters.Configuration.Filter.Tag.Value -join ', ')"
     "`tPester Verbosity    = $($pesterParameters.Configuration.Output.Verbosity.Value)"
 
-    # Import the module that should be tested.
-    $moduleUnderTest = Import-Module -Name $ProjectName -PassThru
+    $moduleUnderTest = $null
+
+    if ($samplerProjectBuildInfo.BuildType -eq 'PowerShellModule')
+    {
+        Write-Build -Color 'DarkGray' -Text (
+            "Resolving built module manifest for test import using project '{0}' and version '{1}'." -f
+            $ProjectName,
+            $ModuleVersion
+        )
+
+        $getSamplerBuiltModuleManifestParameters = @{
+            OutputDirectory          = $OutputDirectory
+            BuiltModuleSubdirectory  = $BuiltModuleSubdirectory
+            ModuleName               = $ProjectName
+            VersionedOutputDirectory = $VersionedOutputDirectory
+        }
+
+        if (-not [System.String]::IsNullOrEmpty($ModuleVersion))
+        {
+            $getSamplerBuiltModuleManifestParameters['ModuleVersion'] = $ModuleVersion
+        }
+
+        $builtModuleManifestPath = Get-SamplerBuiltModuleManifest @getSamplerBuiltModuleManifestParameters
+        $resolvedBuiltModuleManifestPath = (Get-Item -Path $builtModuleManifestPath -ErrorAction 'Ignore').FullName
+
+        if ($resolvedBuiltModuleManifestPath)
+        {
+            Write-Build -Color 'DarkGray' -Text (
+                "Importing module under test from built manifest '{0}'." -f
+                $resolvedBuiltModuleManifestPath
+            )
+
+            $moduleUnderTest = Import-Module -Name $resolvedBuiltModuleManifestPath -PassThru -ErrorAction 'Stop'
+        }
+    }
 
     # Disable code coverage if threshold is set to 0 or not set at all.
     if ($PesterConfigurationCodeCoverageCoveragePercentTarget -eq 0 -or -not $PesterConfigurationCodeCoverageCoveragePercentTarget)
@@ -806,6 +961,12 @@ Pester:
         # If there is no code coverage path yet, use default - all .psm1 and .ps1 in built module root.
         if (-not $pesterParameters.Configuration.CodeCoverage.Path.Value)
         {
+            if (-not $moduleUnderTest)
+            {
+                Write-Build -Color 'Yellow' -Text ("Code coverage requires a built module or explicit Pester.Configuration.CodeCoverage.Path values for project '{0}'. This configuration does not make sense; skipping Pester invocation." -f $ProjectName)
+                return
+            }
+
             $defaultCodeCoveragePaths = (Get-ChildItem -Path $moduleUnderTest.ModuleBase -Include @('*.psm1', '*.ps1') -Recurse).Where{
                 $result = $true
 
@@ -929,7 +1090,7 @@ task Pester_If_Code_Coverage_Under_Threshold {
     }
 
     # Get the values for task variables, see https://github.com/gaelcolas/Sampler?tab=readme-ov-file#build-task-variables.
-    . Set-SamplerTaskVariable
+        . Set-SamplerTaskVariable
 
     "`tCode Coverage Threshold    = '$CodeCoverageThreshold'"
 
@@ -1020,7 +1181,7 @@ task Pester_If_Code_Coverage_Under_Threshold {
 # Synopsis: Uploading Unit Test results to AppVeyor.
 task Upload_Test_Results_To_AppVeyor -If { (property BuildSystem 'unknown') -eq 'AppVeyor' } {
     # Get the values for task variables, see https://github.com/gaelcolas/Sampler?tab=readme-ov-file#build-task-variables.
-    . Set-SamplerTaskVariable
+        . Set-SamplerTaskVariable
 
     $PesterOutputFolder = Get-SamplerAbsolutePath -Path $PesterOutputFolder -RelativeTo $OutputDirectory
 
@@ -1083,7 +1244,7 @@ task Pester_Run_Times {
     }
 
     # Get the values for task variables, see https://github.com/gaelcolas/Sampler?tab=readme-ov-file#build-task-variables.
-    . Set-SamplerTaskVariable
+        . Set-SamplerTaskVariable
 
     $PesterOutputFolder = Get-SamplerAbsolutePath -Path $PesterOutputFolder -RelativeTo $OutputDirectory
 
@@ -1094,9 +1255,19 @@ task Pester_Run_Times {
         PowerShellVersion = ('PSv.{0}' -f $PSVersionTable.PSVersion)
     }
 
-    $PesterOutputFileFileName = Get-PesterOutputFileFileName @getPesterOutputFileFileNameParameters
+    if ([System.String]::IsNullOrEmpty($ProjectName) -or [System.String]::IsNullOrEmpty($ModuleVersion))
+    {
+        $latestPesterResultObject = Get-ChildItem -Path $PesterOutputFolder -Filter 'PesterObject_*.xml' -ErrorAction 'Ignore' |
+            Sort-Object -Property LastWriteTime -Descending |
+            Select-Object -First 1
 
-    $PesterResultObjectClixml = Join-Path $PesterOutputFolder "PesterObject_$PesterOutputFileFileName"
+        $PesterResultObjectClixml = $latestPesterResultObject.FullName
+    }
+    else
+    {
+        $PesterOutputFileFileName = Get-PesterOutputFileFileName @getPesterOutputFileFileNameParameters
+        $PesterResultObjectClixml = Join-Path $PesterOutputFolder "PesterObject_$PesterOutputFileFileName"
+    }
 
     "`tPester Output Folder     = {0}" -f $PesterOutputFolder
     "`tPester Output Object     = {0}" -f $PesterResultObjectClixml

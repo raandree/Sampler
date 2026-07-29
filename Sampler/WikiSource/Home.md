@@ -12,6 +12,29 @@ for this repository.
 
 See the section [[Getting started]]
 
+## Working across related repositories
+
+See [[Workspace-Dependencies]] for how to link sibling workspace module builds
+into the local output path so they are discoverable during builds and tests
+without publishing them to a feed.
+
+## GitHub Copilot integration
+
+See [[Copilot-Instructions-Template]] for how to scaffold GitHub Copilot
+instruction files and a `validate-changes` skill into a new or existing module.
+
+## Module documentation and GitHub wikis
+
+See [[Documentation-and-WikiSource]] for how to generate public command
+documentation, external help, custom WikiSource pages, sidebars, and wiki
+release artifacts with `DscResource.DocGenerator`.
+
+## Exporting classes as type accelerators
+
+See [[Type-Accelerators]] for how to scaffold a `suffix.ps1` that exports your
+module's PSv5+ classes as type accelerators, so consumers can use them without
+a `using module` statement.
+
 ## Prerequisites
 
 - PowerShell 5.or higher

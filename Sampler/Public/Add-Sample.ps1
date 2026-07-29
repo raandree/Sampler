@@ -14,11 +14,16 @@
             - Classes: A sample of 4 classes with inheritence and how to manage the orders to avoid parsing errors.
             - ClassResource: A Class-Based DSC Resources showing some best practices including tests, Reasons, localized strings.
             - Composite: A DSC Composite Resource (a configuration block) packaged the right way to make sure it's visible by Get-DscResource.
+            - Copilot: Scaffolds GitHub Copilot instruction files under .github/ for the current module project.
+              When the HasClasses prompt/parameter is enabled, also scaffolds an export-class-type-accelerator skill.
             - Enum: An example of a simple Enum.
             - MofResource: A sample of a MOF-Based DSC Resource following the DSC Community practices.
             - PrivateFunction: A sample of a Private function (not exported from the module) and its test.
             - PublicCallPrivateFunctions: A sample of 2 functions where the exported one (public) calls the private one, with the tests.
             - PublicFunction: A sample public function and its test.
+            - TypeAccelerators: A suffix.ps1 exporting classes as (module-qualified) type accelerators.
+              See https://synedgy.com/powershell-modules-exporting-classes/ for the background on this technique.
+              Requires 'suffix: suffix.ps1' to be uncommented in build.yaml for ModuleBuilder to merge it in.
 
     .PARAMETER DestinationPath
         Destination of your module source root folder, defaults to the current directory ".".
@@ -49,6 +54,7 @@ function Add-Sample
             'ClassFolderResource',
             'ClassResource',
             'Composite',
+            'Copilot',
             'Enum',
             'Examples',
             'GithubConfig',
@@ -58,6 +64,7 @@ function Add-Sample
             'PrivateFunction',
             'PublicCallPrivateFunctions',
             'PublicFunction',
+            'TypeAccelerators',
             'VscodeConfig',
             'ChocolateyPackage'
         )]

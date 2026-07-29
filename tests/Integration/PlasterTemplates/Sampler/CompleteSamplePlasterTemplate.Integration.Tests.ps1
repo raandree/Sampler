@@ -30,6 +30,10 @@ Describe 'Complete Module Plaster Template' {
                 # Folders (relative to module root)
                 '.github'
                 '.github/ISSUE_TEMPLATE'
+                '.github/instructions'
+                '.github/skills'
+                '.github/skills/validate-changes'
+                '.github/skills/export-class-type-accelerator'
                 '.vscode'
                 'output'
                 'output/RequiredModules'
@@ -58,6 +62,17 @@ Describe 'Complete Module Plaster Template' {
                 'tests/Unit/Public'
 
                 # Files (relative to module root)
+                '.github/copilot-instructions.md'
+                '.github/instructions/ai-instruction-authoring.instructions.md'
+                '.github/instructions/build-task-files.instructions.md'
+                '.github/instructions/build-tasks.instructions.md'
+                '.github/instructions/classes-and-type-accelerators.instructions.md'
+                '.github/instructions/private-functions.instructions.md'
+                '.github/instructions/public-functions.instructions.md'
+                '.github/instructions/test-writing.instructions.md'
+                '.github/instructions/wiki-publishing.instructions.md'
+                '.github/skills/validate-changes/SKILL.md'
+                '.github/skills/export-class-type-accelerator/SKILL.md'
                 '.github/ISSUE_TEMPLATE/config.yml'
                 '.github/ISSUE_TEMPLATE/General.md'
                 '.github/ISSUE_TEMPLATE/Problem_with_module.yml'
@@ -91,6 +106,7 @@ Describe 'Complete Module Plaster Template' {
                 'source/Classes/2.class2.ps1'
                 'source/Classes/3.class11.ps1'
                 'source/Classes/4.class12.ps1'
+                'source/suffix.ps1'
                 # 'source/DSCResources/DSC_Folder/DSC_Folder.psm1'
                 # 'source/DSCResources/DSC_Folder/DSC_Folder.schema.mof'
                 # 'source/DSCResources/DSC_Folder/en-US/DSC_Folder.strings.psd1'
@@ -134,6 +150,7 @@ Describe 'Complete Module Plaster Template' {
                 GitHubOwner          = 'AccountName'
                 UseGitVersion        = $true
                 UseCodeCovIo         = $true
+                ExportableTypeName   = 'Class1'
             }
 
             { Invoke-Plaster @invokePlasterParameters } | Should -Not -Throw

@@ -17,6 +17,28 @@ Private functions follow the same baseline engineering rules as public functions
 - Use `[CmdletBinding()]` and include `[OutputType(...)]`.
 - Use explicit .NET parameter types (`[System.String]`, `[System.Boolean]`, etc.).
 - Keep parameter names and defaults stable when consumed by public functions/tasks.
+- Follow DSC Community parameter style: `[Parameter()]` attribute, type, and variable name each on their own line, with a blank line between comma-separated parameter declarations:
+
+```powershell
+param
+(
+    [Parameter(Mandatory = $true)]
+    [System.String]
+    $ProjectName,
+
+    [Parameter()]
+    [System.Management.Automation.SwitchParameter]
+    $Force
+)
+```
+
+## PowerShell style
+
+- Naming: parameters and class properties use PascalCase. Variables scoped to a function/method (including top-level script transient/loop variables) use camelCase. Top-level script/module-scope variables holding persistent state use PascalCase.
+- Prefer `$null = <expression>` over `<expression> | Out-Null` to suppress output.
+- Prefer splatting over backtick-based line continuation for multi-line command calls.
+- Never use hardcoded backslash separators inside `Join-Path -ChildPath` strings. Build multi-level paths with chained `Join-Path` calls (one component at a time). Backslashes in a `ChildPath` are not path separators on Linux/macOS.
+- Use only ASCII characters in `.ps1` source files. Non-ASCII characters (em-dashes, smart quotes, Unicode arrows, etc.) trigger PSScriptAnalyzer rule `PSUseBOMForUnicodeEncodedFile`. Use `->` not Unicode arrows, `-` not dashes, straight quotes.
 
 ## Validation model
 

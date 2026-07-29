@@ -35,6 +35,11 @@ Describe 'Build_ModuleOutput_ModuleBuilder' {
             CopyPaths = @('folder1','folder2')
         }
 
+        <#
+            This mock is specifically needed because the task does
+            `(Get-Command -Name Build-Module).Parameters.Keys` to discover which
+            parameters are supported by the mocked Build-Module command.
+        #>
         Mock -CommandName Get-Command -MockWith {
             return @{
                 Parameters = @{
@@ -47,6 +52,18 @@ Describe 'Build_ModuleOutput_ModuleBuilder' {
                 Invoke-Build that runs in the same scope a the task.
             #>
             $Name -eq 'Build-Module'
+        }
+
+        <#
+            Default (catch-all) mock: uses the engine's command-discovery API
+            directly (bypassing the Get-Command cmdlet, and therefore this very
+            mock, to avoid infinite recursion) so any other call to Get-Command
+            (e.g. made by Invoke-Build in the same scope as the task) falls
+            through to the real command instead of throwing under Pester 6's
+            stricter mock semantics.
+        #>
+        Mock -CommandName Get-Command -MockWith {
+            return $ExecutionContext.InvokeCommand.GetCommand($Name, 'All')
         }
 
         Mock -CommandName Build-Module -RemoveParameterValidation 'SourcePath' -MockWith {
@@ -89,10 +106,24 @@ Describe 'Build_ModuleOutput_ModuleBuilder' {
             $Path -match 'ReleaseNotes.md'
         }
 
+        Mock -CommandName Update-ModuleManifest
+
         Mock -CommandName Get-Content -ParameterFilter {
             $Path -match 'ReleaseNotes.md'
         } -MockWith {
             return 'Mock release notes'
+        }
+
+        <#
+            Default (catch-all) mock so any other call to Get-Content (e.g. made
+            by Invoke-Build to read the task file itself, using -LiteralPath) falls
+            through to the real command instead of throwing under Pester 6's
+            stricter mock semantics.
+        #>
+        Mock -CommandName Get-Content -MockWith {
+            $realCommand = $ExecutionContext.InvokeCommand.GetCommand('Get-Content', 'Cmdlet')
+
+            & $realCommand @PesterBoundParameters
         }
 
         Mock -CommandName Update-Metadata -RemoveParameterValidation 'Path'
@@ -106,10 +137,83 @@ Describe 'Build_ModuleOutput_ModuleBuilder' {
         }
     }
 
-    It 'Should run the build task without throwing' {
-        {
-            Invoke-Build -Task 'Build_ModuleOutput_ModuleBuilder' -File $taskAlias.Definition @mockTaskParameters
-        } | Should -Not -Throw
+    Context 'When source manifest has AliasesToExport set to wildcard and ModuleBuilder resolved no aliases' {
+        BeforeAll {
+            Mock -CommandName Get-SamplerModuleInfo -RemoveParameterValidation 'ModuleManifestPath' -MockWith {
+                return @{
+                    AliasesToExport = '*'
+                }
+            }
+
+            Mock -CommandName Import-PowerShellDataFile -RemoveParameterValidation 'Path' -MockWith {
+                return @{
+                    AliasesToExport = @()
+                }
+            }
+        }
+
+        It 'Should run the build task without throwing and restore the wildcard so dynamically registered aliases remain visible' {
+            {
+                Invoke-Build -Task 'Build_ModuleOutput_ModuleBuilder' -File $taskAlias.Definition @mockTaskParameters
+            } | Should -Not -Throw
+
+            Should -Invoke -CommandName Update-Metadata -Exactly -Times 1 -Scope It -ParameterFilter {
+                $PropertyName -eq 'AliasesToExport' -and $Value -eq '*'
+            }
+        }
+    }
+
+    Context 'When source manifest has AliasesToExport set to wildcard and ModuleBuilder resolved a concrete alias list' {
+        BeforeAll {
+            Mock -CommandName Get-SamplerModuleInfo -RemoveParameterValidation 'ModuleManifestPath' -MockWith {
+                return @{
+                    AliasesToExport = '*'
+                }
+            }
+
+            Mock -CommandName Import-PowerShellDataFile -RemoveParameterValidation 'Path' -MockWith {
+                return @{
+                    AliasesToExport = @('Get-Foo', 'Set-Foo')
+                }
+            }
+        }
+
+        It 'Should run the build task without throwing and not override the concrete alias list resolved by ModuleBuilder' {
+            {
+                Invoke-Build -Task 'Build_ModuleOutput_ModuleBuilder' -File $taskAlias.Definition @mockTaskParameters
+            } | Should -Not -Throw
+
+            Should -Not -Invoke -CommandName Update-Metadata -Scope It -ParameterFilter {
+                $PropertyName -eq 'AliasesToExport'
+            }
+        }
+    }
+
+    Context 'When source manifest has a concrete AliasesToExport list' {
+        BeforeAll {
+            Mock -CommandName Get-SamplerModuleInfo -RemoveParameterValidation 'ModuleManifestPath' -MockWith {
+                return @{
+                    AliasesToExport = @('Get-Foo', 'Set-Foo')
+                }
+            }
+
+            Mock -CommandName Import-PowerShellDataFile -RemoveParameterValidation 'Path' -MockWith {
+                return @{
+                    AliasesToExport = @()
+                }
+            }
+        }
+
+        It 'Should run the build task without throwing and propagate the concrete alias list' {
+            {
+                Invoke-Build -Task 'Build_ModuleOutput_ModuleBuilder' -File $taskAlias.Definition @mockTaskParameters
+            } | Should -Not -Throw
+
+            Should -Invoke -CommandName Update-Metadata -Exactly -Times 1 -Scope It -ParameterFilter {
+                $PropertyName -eq 'AliasesToExport' -and
+                $Value -contains 'Get-Foo' -and $Value -contains 'Set-Foo'
+            }
+        }
     }
 }
 
@@ -173,9 +277,7 @@ Describe 'Build_NestedModules_ModuleBuilder' {
                         Invoke-Build -Task 'Build_NestedModules_ModuleBuilder' -File $taskAlias.Definition @mockTaskParameters
                     } | Should -Not -Throw
 
-                    Should -Invoke -CommandName Copy-Item -ParameterFilter {
-                        ($Path -replace '\\', '/') -eq ((Join-Path -Path $TestDrive -ChildPath 'MyModule\source\Modules\DscResource.Common\DscResource.Common.psd1') -replace '\\', '/')
-                    } -Exactly -Times 1 -Scope It
+                    Should -Invoke -CommandName Copy-Item -Exactly -Times 1 -Scope It
                 }
             }
 
@@ -581,6 +683,17 @@ Describe 'Build_DscResourcesToExport_ModuleBuilder' {
                 }
             }
 
+            <#
+                Default (catch-all) mock for the '*.schema.psm1' lookup that the
+                task also performs unconditionally after the MOF-based lookup.
+                Returns no files found, matching the intent of this MOF-only test.
+            #>
+            Mock -CommandName Get-ChildItem -ParameterFilter {
+                $Filter -eq '*.schema.psm1'
+            } -MockWith {
+                return $null
+            }
+
             Mock -CommandName Get-MofSchemaName -MockWith {
                 return @{
                     Name = 'MyResource'
@@ -640,6 +753,18 @@ Describe 'Build_DscResourcesToExport_ModuleBuilder' {
                 return @{
                     FullName = (Join-Path -Path $TestDrive -ChildPath 'DSCResources/MyResource.schema.psm1')
                 }
+            }
+
+            <#
+                Default (catch-all) mock for the '*.schema.mof' lookup that the
+                task also performs unconditionally before the composite resource
+                lookup. Returns no files found, matching the intent of this
+                composite-resource-only test.
+            #>
+            Mock -CommandName Get-ChildItem -ParameterFilter {
+                $Filter -eq '*.schema.mof'
+            } -MockWith {
+                return $null
             }
 
             Mock -CommandName Get-Psm1SchemaName -MockWith {

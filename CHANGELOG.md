@@ -7,10 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.120.0] - 2026-07-14
+
 ### Added
 
+- New `Copilot` Plaster template under `Sampler/Templates/Copilot/` that scaffolds GitHub Copilot instruction files and a `validate-changes` skill into any Sampler-based module. Available via `Add-Sample -Sample Copilot` and as a `copilot` feature option in `New-SampleModule` (CustomModule and CompleteSample).
+- New `TypeAccelerators` Plaster template under `Sampler/Templates/TypeAccelerators/` that scaffolds a `suffix.ps1` exporting classes as type accelerators, the workaround pattern for PowerShell modules being unable to export classes directly. Available via `Add-Sample -Sample TypeAccelerators -SourceDirectory <path> -ExportableTypeName <ClassName>`. The generated file exposes two author-controlled lists (`$TypesToExportAsIs` for bare-name exports, `$TypesToExportWithNamespace` for `<ModuleName>.<ClassName>` exports) so each class's export name is a deliberate per-class choice. If an accelerator with the same name is already registered (for example after a `-Force` re-import during development), it is brute-force overridden (removed and re-registered) with a `Write-Verbose` message, rather than throwing.
+- `TypeAccelerators` is now also available as a `Features` option in `New-SampleModule` (`CustomModule`, requires `Classes` and `SampleScripts`, or `All`) and is included unconditionally in the `CompleteSample` module type, scaffolding a `suffix.ps1` that exports the sample `Class1` as a type accelerator. `New-SampleModule`'s generated `build.yaml` also automatically uncomments `suffix: suffix.ps1` whenever this `suffix.ps1` file is scaffolded, so `ModuleBuilder` actually merges it in without extra manual steps.
+- New `Type-Accelerators` wiki page (`Sampler/WikiSource/Type-Accelerators.md`, linked from `Home.md`) documenting the `TypeAccelerators` template, its design choices, and how to consume exported types from another module, referencing https://synedgy.com/powershell-modules-exporting-classes/ for background.
+- New `export-class-type-accelerator` Copilot skill (`Sampler/Templates/Copilot/skills/export-class-type-accelerator/`) that walks through scaffolding or extending a module's `suffix.ps1` type-accelerator exports and explicitly verifies `build.yaml` has `suffix: suffix.ps1` uncommented, since that wiring step fails silently (no error, warning, or test failure) if missed. Scaffolded alongside `classes-and-type-accelerators.instructions.md` whenever `HasClasses`/the `Classes` feature is enabled, via `Add-Sample -Sample Copilot`, `New-SampleModule` (`copilot` + `Classes` features, or `CompleteSample`).
+- Expanded the Copilot `wiki-publishing.instructions.md` template with complete `DscResource.DocGenerator` dependency, workflow, WikiSource, generated command help, sidebar, release asset, and validation guidance. Added Sampler wiki documentation clarifying that DocGenerator supports general PowerShell modules and is not limited to DSC resources.
+- New `Link_Local_Workspace_Dependencies` build task and supporting public functions (`Get-SamplerWorkspaceLinkedModuleRoot`, `Get-SamplerWorkspaceBuiltModulePath`, `New-SamplerWorkspaceModuleLink`) for linking sibling workspace module build outputs into the local module output path when working across related repos in a multi-repo workspace. Configure via `WorkspaceModules` in `build.yaml`.
+- `Clean` task now preserves `output\agentic\` across builds (in addition to `RequiredModules`), providing a stable location for build and test log files that survive clean cycles. The subfolder name is configurable via the `AgentOutputSubdirectory` parameter (default `'agentic'`; set to empty string to disable the exclusion).
 - `package_psresource_nupkg` tasks that recursively packs dependencies, ignoring `ExternalDependencies` using `PSResourceGet` module.
-- `New-SampleModule` `Features` parameter now accepts `github`, `vscode`, `codecov`, `azurepipelines`, and `gitversion` to mirror the Plaster template's feature choices.
+
+### Fixed
+
+- Updated `Mock` setups across `tests/Unit/tasks/*.build.Tests.ps1`,
+  `tests/Unit/TestHelpers/MockSetSamplerTaskVariable.ps1`, and
+  `tests/Unit/scripts/Set-SamplerTaskVariable.Tests.ps1` for compatibility with
+  Pester 6.0.0, which removed the previous "fall through to the real command"
+  behavior for a `Mock -ParameterFilter` that did not match a call; such calls
+  now throw `No mock for command '<name>' matched the call` instead of silently
+  invoking the real command. Added default (no-filter) fallback mocks for
+  commands like `Get-SamplerAbsolutePath`, `Get-Command`, `Get-Content`,
+  `Test-Path`, `Get-ChildItem`, and `Import-Module` so calls not covered by a
+  test's specific `-ParameterFilter` resolve sensibly, without weakening any
+  test's original assertions. Also replaced the removed `Assert-MockCalled`
+  cmdlet with `Should -Invoke` in `SetPsModulePath.build.Tests.ps1`, and
+  accounted for Pester 6.0.0 dropping the legacy `Invoke-Pester`
+  `-OutputFile`/`-OutputFormat` parameters used by the Pester-4 code path in
+  `Invoke-Pester.pester.build.Tests.ps1`. No production source files were
+  changed; this is purely a test-suite compatibility fix.
+- `Sampler/Templates/Build/build.yaml.template` (scaffolded by `New-SampleModule`
+  and `Add-Sample -Sample Build`) now generates the current nested
+  `Pester.Configuration` (`Run`/`Output`/`Filter`/`CodeCoverage`/`TestResult`)
+  schema instead of the deprecated flat `Pester.OutputFormat`/`Pester.Script`/
+  `Pester.CodeCoverageThreshold`/`Pester.CodeCoverageOutputFile` keys, matching
+  the structure Sampler itself uses in its own `build.yaml`. The old flat keys
+  still work (`Invoke-Pester.pester.build.ps1` keeps a deprecation fallback and
+  prints migration guidance), but new modules scaffolded from the template were
+  being generated with an already-deprecated configuration shape. Fixes #587.
+- `Fail_Build_If_Pester_Tests_Failed` and the `DscResource.Test` build task now fail
+  the build when a Pester 5 run reports failed blocks or failed containers (for
+  example a discovery failure such as an empty `-ForEach`), not only when
+  `FailedCount` is greater than zero. Such container/discovery failures leave
+  `FailedCount` at `0`, so the previous gate let them pass as a green build. The gate
+  now uses the Pester 5 `Result` property and falls back to `FailedCount` for
+  Pester 4 result objects.
+- `Create_Release_Git_Tag` and `Create_Changelog_Branch` tasks now read `MainGitBranch` from `BuildInfo.GitConfig.MainGitBranch` in `build.yaml` when not set as a task parameter or InvokeBuild property. The resolution order is: task parameter -> `build.yaml` `GitConfig.MainGitBranch` -> default `'main'`.
+- `Create_Release_Git_Tag` and `Create_Changelog_Branch` tasks no longer call `git config user.name` or `git config user.email` when `GitConfigUserName` or `GitConfigUserEmail` are not set (empty/null), allowing the existing global or system git identity to be used without being overwritten with an empty value.
+- `Create_Release_Git_Tag` and `Create_Changelog_Branch` tasks no longer wrap the `http.extraheader` value in literal double quotes when authenticating a `git pull`/`push` with `BasicAuthPAT`. Since the argument is passed directly to `git` (not through a shell), the quote characters were previously sent as part of the literal `AUTHORIZATION` header value, which some servers (e.g. Apache) rejected with a `400 Bad Request`. The `http.sslbackend=schannel` git config, which is only supported by Git for Windows, is now only applied when running on Windows so the same tasks work correctly on Linux and macOS.
+- The `Build` Plaster template (`build.yaml.template`) now scaffolds a `GitConfig:` section with `MainGitBranch` pre-populated from the Plaster parameter entered during scaffolding, and `UserName`/`UserEmail` as commented-out examples.
+- `New-SampleModule` now accepts `-GitHubOwner` and `-GitHubOwnerDscCommunity` parameters so the GitHub owner can be specified non-interactively when scaffolding GitHub-enabled or `dsccommunity` modules.
+- `New-SampleModule` now forwards empty-string parameter values (such as `ModuleDescription = ''`) to Plaster instead of silently dropping them, eliminating unexpected interactive prompts when all parameters are splatted.
 - `New-SampleModule` documents the `CustomModule` `ModuleType` and the new `MainGitBranch` parameter.
 - `New-SampleModule` `ModuleType` `ValidateSet` now includes `CustomModule`.
 - `New-SampleModule` exposes a `MainGitBranch` parameter (defaults to `main`) for templates that configure a default Git branch.
@@ -22,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `New-SampleModule` no longer splits `ModuleType` and `Features` into separate parameter sets, so both can be supplied in the same invocation.
+- Pester task setup now still supports repository-only test runs without a prebuilt module, but fails fast when a PowerShell module test workflow is invoked before the module output has been built.
+- Documented the separation between source kind and artifact context in build-task guidance, clarified module-versus-non-module version fallback rules, and expanded the README with pipeline-shape documentation for module, alternate-artifact, and standalone repository flows.
+- Added `Get-SamplerProjectBuildInfo` and updated Pester build tasks to use its `BuildType`/`HasBuiltOutput` project model directly instead of Pester-specific setup/import/identity wrapper functions.
+- Pinned `ModuleBuilder` to `3.1.8` in `RequiredModules.psd1` because newer versions break Sampler task alias registration during tests.
+- Temporarily skip the `SimpleModule` integration tests that depend on building the sample module on Windows PowerShell 5.1 while `ModuleBuilder` 3.2 is broken there.
+- Change `azure-pipelines.yml` to support runtime parameters for running only selected platforms. Refactored the jobs to matrix jobs so it is not hardcoded jobs
+- Changed `azure-pipelines.yml.template` and `azure-pipelines_dsccommunity.yml.template` templates to support runtime parameters for running only selected platforms. Refactored the jobs to matrix jobs so it is not hardcoded jobs
 
 ### Fixed
 
@@ -38,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed the `azure-pipelines.yml` file condition that referenced the non-existent `Azure-Pipelines` feature value.
   - Aligned `New-SampleModule` `Features` `ValidateSet` casing with the template's choice values.
 - Made `Add-Sample` and `New-SamplerPipeline` resolve Plaster's culture-aware manifest-path helper at runtime so they work with both Plaster v2.x (`Get-PlasterManifestPathForCulture`) and Plaster v1.x (`GetPlasterManifestPathForCulture`).
+- `Set-SamplerTaskVariable` now infers module sources from the source manifest, uses an explicit Chocolatey artifact context instead of build-output probing, and falls back to version `0.0.1` for non-module repositories when no manifest or GitVersion data is available.
 
 ## [0.119.0] - 2026-01-08
 

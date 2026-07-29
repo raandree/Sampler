@@ -100,6 +100,45 @@ Task Build_ModuleOutput_ModuleBuilder {
 
     $BuiltModule = Build-Module @buildModuleParams -PassThru
 
+    $sourceModuleInfo = Get-SamplerModuleInfo -ModuleManifestPath $moduleManifestPath
+
+    $sourceAliasesToExport = $sourceModuleInfo.AliasesToExport
+
+    if ($sourceAliasesToExport)
+    {
+        if (Split-Path -IsAbsolute -Path $BuiltModule.RootModule)
+        {
+            $builtModuleManifestPath = [System.IO.Path]::ChangeExtension($BuiltModule.RootModule, '.psd1')
+        }
+        else
+        {
+            $builtModuleManifestPath = Join-Path -Path $BuiltModule.ModuleBase -ChildPath ('{0}.psd1' -f $ProjectName)
+        }
+
+        $builtManifestData = Import-PowerShellDataFile -Path $builtModuleManifestPath -ErrorAction 'Stop'
+        $builtAliasesToExport = @($builtManifestData.AliasesToExport)
+
+        <#
+            Propagate AliasesToExport from the source manifest when:
+            - Source defines a concrete alias list (not a wildcard): always propagate so
+              that explicit aliases are not lost.
+            - Source uses the wildcard '*' but ModuleBuilder resolved nothing (wrote @()):
+              aliases are registered dynamically (e.g. in suffix.ps1) and ModuleBuilder
+              cannot enumerate them statically; restore '*' so they remain visible.
+
+            Do NOT overwrite a concrete list that ModuleBuilder already resolved with '*'
+            from the source manifest, as that would undo ModuleBuilder's enumeration work.
+        #>
+        $shouldUpdate =
+            ($sourceAliasesToExport -ne '*') -or
+            ($builtAliasesToExport.Count -eq 0)
+
+        if ($shouldUpdate)
+        {
+            Update-Metadata -Path $builtModuleManifestPath -PropertyName 'AliasesToExport' -Value $sourceAliasesToExport
+        }
+    }
+
     # if we built the PSM1 on Windows with a BOM, re-write without BOM
     if ($PSVersionTable.PSVersion.Major -le 5)
     {
@@ -119,6 +158,15 @@ Task Build_ModuleOutput_ModuleBuilder {
     if (Test-Path -Path $ReleaseNotesPath)
     {
         $releaseNotes = Get-Content -Path $ReleaseNotesPath -Raw
+
+        <#
+            Strip non-ASCII characters before embedding the release notes into the
+            built module manifest. Import-PowerShellDataFile on Windows PowerShell 5.1
+            cannot parse a PSD1 file that contains non-ASCII characters in string values
+            when the file is encoded as UTF-8 without BOM (which is the default on Linux/macOS).
+            Replace any non-ASCII character with '?' so the manifest remains parseable.
+        #>
+        $releaseNotes = [System.Text.RegularExpressions.Regex]::Replace($releaseNotes, '[^\x00-\x7F]', '?')
 
         $outputManifest = $BuiltModule.Path
 

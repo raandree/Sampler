@@ -54,6 +54,16 @@ Describe 'Invoke_Pester_Tests_v4' {
             # Mocks testing of passing a Invoke-Pester parameter.
             PesterTag = 'MyTag'
         }
+
+        <#
+            Default (catch-all) mock so any other call to Get-Command (e.g. made
+            by Invoke-Build to resolve the task file itself) falls through to the
+            real command instead of throwing under Pester 6's stricter mock
+            semantics.
+        #>
+        Mock -CommandName Get-Command -MockWith {
+            return $ExecutionContext.InvokeCommand.GetCommand($Name, 'All')
+        }
     }
 
     Context 'When code coverage is disabled' {
@@ -76,6 +86,28 @@ Describe 'Invoke_Pester_Tests_v4' {
                 return 0
             }
 
+            Mock -CommandName Get-SamplerProjectBuildInfo -MockWith {
+                return @{
+                    ProjectName    = 'MyModule'
+                    SourcePath     = (Join-Path -Path $TestDrive -ChildPath 'source')
+                    ModuleVersion  = '2.0.0'
+                    BuildType      = 'PowerShellModule'
+                    HasBuiltOutput = $true
+                }
+            }
+
+            <#
+                Pester 6's real Invoke-Pester no longer has the legacy 'OutputFile'
+                and 'OutputFormat' parameters that this task uses when targeting
+                Pester 4. Define a permissive (non-advanced) stub function so Mock
+                can bind arbitrary named parameters instead of failing parameter
+                binding against the real (Pester 6) command signature.
+            #>
+            function Invoke-Pester
+            {
+                param ()
+            }
+
             Mock -CommandName Get-Command -ParameterFilter {
                 $Name -eq 'Invoke-Pester'
             } -MockWith {
@@ -89,7 +121,7 @@ Describe 'Invoke_Pester_Tests_v4' {
             }
 
             Mock -CommandName Import-Module -ParameterFilter {
-                $Name -eq 'MyModule'
+                $Name -eq 'MyModule' -or $Name -like '*MyModule.psd1'
             } -MockWith {
                 return @{
                     ModuleBase = $TestDrive | Join-Path -ChildPath 'MyModule'
@@ -140,6 +172,18 @@ Describe 'Invoke_Pester_Tests_v5' {
             # Mocks testing of passing a Invoke-Pester parameter.
             PesterTag = 'MyTag'
         }
+
+        <#
+            Default (catch-all) mock so any other call to Test-Path (e.g. checking
+            for paths not specifically under test in a given Context) falls
+            through to the real command instead of throwing under Pester 6's
+            stricter mock semantics.
+        #>
+        Mock -CommandName Test-Path -MockWith {
+            $realCommand = $ExecutionContext.InvokeCommand.GetCommand('Test-Path', 'Cmdlet')
+
+            & $realCommand @PesterBoundParameters
+        }
     }
 
     Context 'When code coverage is disabled' {
@@ -163,8 +207,22 @@ Describe 'Invoke_Pester_Tests_v5' {
 
             Mock -CommandName New-Item
 
+            Mock -CommandName Get-SamplerProjectBuildInfo -MockWith {
+                return @{
+                    ProjectName    = 'MyModule'
+                    SourcePath     = (Join-Path -Path $TestDrive -ChildPath 'source')
+                    ModuleVersion  = '2.0.0'
+                    BuildType      = 'PowerShellModule'
+                    HasBuiltOutput = $true
+                }
+            }
+
             Mock -CommandName Import-Module -ParameterFilter {
-                $Name -eq 'MyModule'
+                $Name -eq 'MyModule' -or $Name -like '*MyModule.psd1'
+            } -MockWith {
+                return @{
+                    ModuleBase = $TestDrive | Join-Path -ChildPath 'MyModule'
+                }
             }
 
             Mock -CommandName Invoke-Pester -MockWith {
@@ -180,6 +238,9 @@ Describe 'Invoke_Pester_Tests_v5' {
             } | Should -Not -Throw
 
             Should -Invoke -CommandName Invoke-Pester -Exactly -Times 1 -Scope It
+            Should -Invoke -CommandName Import-Module -ParameterFilter {
+                $Name -eq 'MyModule' -or $Name -like '*MyModule.psd1'
+            } -Exactly -Times 1 -Scope It
         }
     }
 
@@ -207,8 +268,18 @@ Describe 'Invoke_Pester_Tests_v5' {
 
             Mock -CommandName New-Item
 
+            Mock -CommandName Get-SamplerProjectBuildInfo -MockWith {
+                return @{
+                    ProjectName    = 'MyModule'
+                    SourcePath     = (Join-Path -Path $TestDrive -ChildPath 'source')
+                    ModuleVersion  = '2.0.0'
+                    BuildType      = 'PowerShellModule'
+                    HasBuiltOutput = $true
+                }
+            }
+
             Mock -CommandName Import-Module -ParameterFilter {
-                $Name -eq 'MyModule'
+                $Name -eq 'MyModule' -or $Name -like '*MyModule.psd1'
             } -MockWith {
                 return @{
                     ModuleBase = $TestDrive | Join-Path -ChildPath 'MyModule'
@@ -241,6 +312,79 @@ Describe 'Invoke_Pester_Tests_v5' {
             } | Should -Not -Throw
 
             Should -Invoke -CommandName Invoke-Pester -Exactly -Times 1 -Scope It
+            Should -Invoke -CommandName Import-Module -ParameterFilter {
+                $Name -eq 'MyModule' -or $Name -like '*MyModule.psd1'
+            } -Exactly -Times 1 -Scope It
+        }
+    }
+
+    Context 'When running repository tests without a built module' {
+        BeforeAll {
+            $BuildInfo = @{
+                SemVer = '0.0.1'
+                Pester = @{
+                    Configuration = @{
+                        Run = @{
+                            Path = 'tests/Integration'
+                        }
+                        CodeCoverage = @{
+                            CoveragePercentTarget = 0
+                        }
+                    }
+                }
+            }
+
+            $mockRepositoryTaskParameters = @{
+                OutputDirectory = Join-Path -Path $TestDrive -ChildPath 'output'
+                ProjectPath = Join-Path -Path $TestDrive -ChildPath 'MyRepository'
+                ProjectName = ''
+            }
+
+            $repositoryTestsPath = Join-Path -Path $TestDrive -ChildPath 'MyRepository' |
+                Join-Path -ChildPath 'tests/Integration'
+
+            Mock -CommandName Get-Module -MockWith {
+                return @{
+                    Version = '5.3.3'
+                }
+            }
+
+            Mock -CommandName New-Item
+
+            Mock -CommandName Get-SamplerProjectBuildInfo -MockWith {
+                return @{
+                    ProjectName    = 'MyRepository'
+                    SourcePath     = ''
+                    ModuleVersion  = '0.0.1'
+                    BuildType      = 'Other'
+                    HasBuiltOutput = $false
+                }
+            }
+
+            Mock -CommandName Test-Path -ParameterFilter {
+                $Path -eq $repositoryTestsPath
+            } -MockWith {
+                return $true
+            }
+
+            Mock -CommandName Import-Module
+
+            Mock -CommandName Invoke-Pester -MockWith {
+                return 'Mock Pester PassThru-object'
+            }
+
+            Mock -CommandName Export-Clixml
+        }
+
+        It 'Should run the build task without importing a built module' {
+            {
+                Invoke-Build -Task 'Invoke_Pester_Tests_v5' -File $taskAlias.Definition @mockRepositoryTaskParameters
+            } | Should -Not -Throw
+
+            Should -Invoke -CommandName Invoke-Pester -Exactly -Times 1 -Scope It
+            Should -Not -Invoke -CommandName Import-Module -ParameterFilter {
+                $Name -like '*MyRepository*'
+            } -Scope It
         }
     }
 }
@@ -258,7 +402,7 @@ Describe 'Fail_Build_If_Pester_Tests_Failed' {
         }
     }
 
-    Context 'When tests failed' {
+    Context 'When Pester 4 reports failed tests' {
         BeforeAll {
             Mock -CommandName Get-CodeCoverageThreshold -MockWith {
                 return 70
@@ -284,7 +428,7 @@ Describe 'Fail_Build_If_Pester_Tests_Failed' {
         }
     }
 
-    Context 'When tests failed' {
+    Context 'When Pester 4 reports no failed tests' {
         BeforeAll {
             Mock -CommandName Get-CodeCoverageThreshold -MockWith {
                 return 70
@@ -303,7 +447,65 @@ Describe 'Fail_Build_If_Pester_Tests_Failed' {
             }
         }
 
-        It 'hould run the build task without throwing' {
+        It 'Should run the build task without throwing' {
+            {
+                Invoke-Build -Task 'Fail_Build_If_Pester_Tests_Failed' -File $taskAlias.Definition @mockTaskParameters
+            } | Should -Not -Throw
+        }
+    }
+
+    Context 'When a Pester 5 container failed but no tests failed' {
+        BeforeAll {
+            Mock -CommandName Get-CodeCoverageThreshold -MockWith {
+                return 70
+            }
+
+            Mock -CommandName Test-Path -ParameterFilter {
+                $Path -match 'PesterObject_'
+            } -MockWith {
+                return $true
+            }
+
+            Mock -CommandName Import-Clixml -MockWith {
+                return @{
+                    Result                = 'Failed'
+                    FailedCount           = 0
+                    FailedBlocksCount     = 0
+                    FailedContainersCount = 1
+                }
+            }
+        }
+
+        It 'Should throw the correct error' {
+            {
+                Invoke-Build -Task 'Fail_Build_If_Pester_Tests_Failed' -File $taskAlias.Definition @mockTaskParameters
+            } | Should -Throw -ExpectedMessage "*Pester result was 'Failed'. Failed 0 test(s), 0 block(s) and 1 container(s). Aborting Build*"
+        }
+    }
+
+    Context 'When a Pester 5 run passed' {
+        BeforeAll {
+            Mock -CommandName Get-CodeCoverageThreshold -MockWith {
+                return 70
+            }
+
+            Mock -CommandName Test-Path -ParameterFilter {
+                $Path -match 'PesterObject_'
+            } -MockWith {
+                return $true
+            }
+
+            Mock -CommandName Import-Clixml -MockWith {
+                return @{
+                    Result                = 'Passed'
+                    FailedCount           = 0
+                    FailedBlocksCount     = 0
+                    FailedContainersCount = 0
+                }
+            }
+        }
+
+        It 'Should run the build task without throwing' {
             {
                 Invoke-Build -Task 'Fail_Build_If_Pester_Tests_Failed' -File $taskAlias.Definition @mockTaskParameters
             } | Should -Not -Throw

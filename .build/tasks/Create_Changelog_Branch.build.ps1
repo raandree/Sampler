@@ -42,7 +42,9 @@
 
     .PARAMETER MainGitBranch
         The name of the default branch. Defaults to 'main'. It is used to compare
-        and target the branch against.
+        and target the branch against. If not set as a task parameter or InvokeBuild
+        property, the value is read from `BuildInfo.GitConfig.MainGitBranch` in
+        `build.yaml`.
 
     .PARAMETER BasicAuthPAT
         The personal access token to use to access the Azure DevOps Git repository.
@@ -100,7 +102,7 @@ param
     $ChangelogUpdateChangelogOnPrerelease = (property ChangelogUpdateChangelogOnPrerelease $false),
 
     [Parameter()]
-    $MainGitBranch = (property MainGitBranch 'main'),
+    $MainGitBranch = (property MainGitBranch ''),
 
     [Parameter()]
     $BasicAuthPAT = (property BasicAuthPAT ''),
@@ -146,10 +148,32 @@ task Create_Changelog_Branch {
         }
     }
 
-    Write-Build DarkGray "`tSetting git configuration."
+    if ([System.String]::IsNullOrEmpty($MainGitBranch))
+    {
+        if ($BuildInfo.GitConfig.MainGitBranch)
+        {
+            $MainGitBranch = $BuildInfo.GitConfig.MainGitBranch
 
-    Sampler\Invoke-SamplerGit -Argument @('config', 'user.name', $GitConfigUserName)
-    Sampler\Invoke-SamplerGit -Argument @('config', 'user.email', $GitConfigUserEmail)
+            Write-Build DarkGray "`t...Set property MainGitBranch to the value $MainGitBranch from build configuration."
+        }
+        else
+        {
+            $MainGitBranch = 'main'
+        }
+    }
+
+    "`tMainGitBranch              = '$MainGitBranch'"
+
+    if (-not [System.String]::IsNullOrEmpty($GitConfigUserName))
+    {
+        Sampler\Invoke-SamplerGit -Argument @('config', 'user.name', $GitConfigUserName)
+    }
+
+    if (-not [System.String]::IsNullOrEmpty($GitConfigUserEmail))
+    {
+        Sampler\Invoke-SamplerGit -Argument @('config', 'user.email', $GitConfigUserEmail)
+    }
+
     Sampler\Invoke-SamplerGit -Argument @('config', 'pull.rebase', 'true')
 
     Write-Build DarkGray ("`tPulling latest commits and tags from branch '{0}'." -f $MainGitBranch)
@@ -162,11 +186,21 @@ task Create_Changelog_Branch {
 
         $patBase64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(('{0}:{1}' -f 'PAT', $BasicAuthPAT)))
 
-        $pullArguments += @('-c', ('http.extraheader="AUTHORIZATION: basic {0}"' -f $patBase64))
+        $pullArguments += @('-c', ('http.extraheader=AUTHORIZATION: basic {0}' -f $patBase64))
+    }
+
+    if (-not (Test-Path -Path 'variable:IsWindows') -or $IsWindows)
+    {
+        <#
+            The 'schannel' SSL backend is only available on Windows (Git for
+            Windows). Setting it on Linux or macOS causes git to fail with
+            'Unsupported SSL backend'.
+        #>
+        $pullArguments += @('-c', 'http.sslbackend=schannel')
     }
 
     # Track this branch on the remote 'origin
-    $pullArguments += @('-c', 'http.sslbackend=schannel', 'pull', 'origin', $MainGitBranch, '--tag')
+    $pullArguments += @('pull', 'origin', $MainGitBranch, '--tag')
 
     Sampler\Invoke-SamplerGit -Argument $pullArguments
 
@@ -234,11 +268,21 @@ task Create_Changelog_Branch {
 
         $patBase64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(('{0}:{1}' -f 'PAT', $BasicAuthPAT)))
 
-        $pushArguments += @('-c', ('http.extraheader="AUTHORIZATION: basic {0}"' -f $patBase64))
+        $pushArguments += @('-c', ('http.extraheader=AUTHORIZATION: basic {0}' -f $patBase64))
+    }
+
+    if (-not (Test-Path -Path 'variable:IsWindows') -or $IsWindows)
+    {
+        <#
+            The 'schannel' SSL backend is only available on Windows (Git for
+            Windows). Setting it on Linux or macOS causes git to fail with
+            'Unsupported SSL backend'.
+        #>
+        $pushArguments += @('-c', 'http.sslbackend=schannel')
     }
 
     # Track this branch on the remote 'origin
-    $pushArguments += @('-c', 'http.sslbackend=schannel', 'push', '-u', 'origin', $BranchName)
+    $pushArguments += @('push', '-u', 'origin', $BranchName)
 
     Sampler\Invoke-SamplerGit -Argument $pushArguments
 
